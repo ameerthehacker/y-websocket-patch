@@ -1,0 +1,112 @@
+diff --git a/node_modules/y-websocket/.vscode/settings.json b/node_modules/y-websocket/.vscode/settings.json
+new file mode 100644
+index 0000000..2c63c08
+--- /dev/null
++++ b/node_modules/y-websocket/.vscode/settings.json
+@@ -0,0 +1,2 @@
++{
++}
+diff --git a/node_modules/y-websocket/bin/utils.js b/node_modules/y-websocket/bin/utils.js
+index 72775d9..69ae7f7 100644
+--- a/node_modules/y-websocket/bin/utils.js
++++ b/node_modules/y-websocket/bin/utils.js
+@@ -70,7 +70,7 @@ exports.docs = docs
+ const messageSync = 0
+ const messageAwareness = 1
+ // const messageAuth = 2
+-
++const messageCustom = 100
+ /**
+  * @param {Uint8Array} update
+  * @param {any} origin
+@@ -165,6 +165,17 @@ const messageListener = (conn, doc, message) => {
+     const decoder = decoding.createDecoder(message)
+     const messageType = decoding.readVarUint(decoder)
+     switch (messageType) {
++      case messageCustom:
++        encoding.writeVarUint(encoder, messageCustom)
++        const messageString = decoding.readVarString(decoder)
++        encoding.writeVarString(encoder, messageString)
++        doc.conns.forEach((_, con) => {
++          // broadcast the message to other connections sharing same document
++          if(con !== conn) {
++            send(doc, con, encoding.toUint8Array(encoder))
++          }
++        })
++        break
+       case messageSync:
+         encoding.writeVarUint(encoder, messageSync)
+         syncProtocol.readSyncMessage(decoder, encoder, doc, conn)
+diff --git a/node_modules/y-websocket/dist/src/y-websocket.d.ts b/node_modules/y-websocket/dist/src/y-websocket.d.ts
+index 8a1a688..a0420b1 100644
+--- a/node_modules/y-websocket/dist/src/y-websocket.d.ts
++++ b/node_modules/y-websocket/dist/src/y-websocket.d.ts
+@@ -112,6 +112,8 @@ export class WebsocketProvider extends Observable<string> {
+     disconnectBc(): void;
+     disconnect(): void;
+     connect(): void;
++    sendCustomMessage(message: string): void;
++    onCustomMessage(cb: (message: string) => void): () => void
+ }
+ import { Observable } from "lib0/observable";
+ import * as Y from "yjs";
+diff --git a/node_modules/y-websocket/src/y-websocket.js b/node_modules/y-websocket/src/y-websocket.js
+index ea2d307..9c771db 100644
+--- a/node_modules/y-websocket/src/y-websocket.js
++++ b/node_modules/y-websocket/src/y-websocket.js
+@@ -20,6 +20,7 @@ export const messageSync = 0
+ export const messageQueryAwareness = 3
+ export const messageAwareness = 1
+ export const messageAuth = 2
++export const messageCustom = 100
+ 
+ /**
+  *                       encoder,          decoder,          provider,          emitSynced, messageType
+@@ -115,7 +116,10 @@ const readMessage = (provider, buf, emitSynced) => {
+   const encoder = encoding.createEncoder()
+   const messageType = decoding.readVarUint(decoder)
+   const messageHandler = provider.messageHandlers[messageType]
+-  if (/** @type {any} */ (messageHandler)) {
++  if (messageType === messageCustom) {
++    const stringValue = decoding.readVarString(decoder);
++    provider.customMessageHandlers.forEach((cb) => cb(stringValue))
++  } else if (/** @type {any} */ (messageHandler)) {
+     messageHandler(encoder, decoder, provider, emitSynced, messageType)
+   } else {
+     console.error('Unable to compute message')
+@@ -138,7 +142,7 @@ const setupWS = (provider) => {
+     websocket.onmessage = (event) => {
+       provider.wsLastMessageReceived = time.getUnixTime()
+       const encoder = readMessage(provider, new Uint8Array(event.data), true)
+-      if (encoding.length(encoder) > 1) {
++      if (encoder && encoding.length(encoder) > 1) {
+         websocket.send(encoding.toUint8Array(encoder))
+       }
+     }
+@@ -279,6 +283,7 @@ export class WebsocketProvider extends Observable {
+     this.disableBc = disableBc
+     this.wsUnsuccessfulReconnects = 0
+     this.messageHandlers = messageHandlers.slice()
++    this.customMessageHandlers = [];
+     /**
+      * @type {boolean}
+      */
+@@ -485,4 +490,18 @@ export class WebsocketProvider extends Observable {
+       this.connectBc()
+     }
+   }
++
++  sendCustomMessage(message) {
++    const encoder = encoding.createEncoder()
++    encoding.writeVarUint(encoder, messageCustom)
++    encoding.writeVarString(encoder, message)
++    broadcastMessage(this, encoding.toUint8Array(encoder))
++  }
++
++  onCustomMessage(cb) {
++    this.customMessageHandlers.push(cb)
++    return () => {
++      this.customMessageHandlers.slice(this.customMessageHandlers.indexOf(cb), 1)
++    }
++  }
+ }

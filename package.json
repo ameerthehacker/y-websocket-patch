@@ -1,0 +1,17 @@
+{
+  "name": "y-websocket-patch",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "HOST=localhost PORT=80 npx y-websocket",
+    "postinstall": "patch-package"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "patch-package": "8.0.0",
+    "y-websocket": "1.5.0"
+  }
+}
